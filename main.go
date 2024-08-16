@@ -1,10 +1,15 @@
 package main
 
 import (
+	"log"
 	"net/http"
 )
 
 func main() {
 	http.Handle("/", http.FileServer(http.Dir("./web")))
-	http.ListenAndServe(":7540", nil)
+
+	err := http.ListenAndServe(":7540", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
