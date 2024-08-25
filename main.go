@@ -70,19 +70,21 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 	if re.MatchString(repeat) {
 		days_str := strings.Fields(repeat)[1]
 		days, _ := strconv.Atoi(days_str)
-
+		result_time = format_time.AddDate(0, 0, days)
 		for {
-			result_time = format_time.AddDate(0, 0, days)
+
 			if result_time.After(now) {
 				break
 			}
+			result_time = result_time.AddDate(0, 0, days)
 		}
 	} else if repeat == "y" {
+		result_time = format_time.AddDate(1, 0, 0)
 		for {
-			result_time = format_time.AddDate(1, 0, 0)
 			if result_time.After(now) {
 				break
 			}
+			result_time = result_time.AddDate(1, 0, 0)
 		}
 	} else {
 		return "", errors.New("repeat has a wrong format")
@@ -99,15 +101,16 @@ func main() {
 		now_str := r.URL.Query().Get("now")
 		now, err := time.Parse("20060102", now_str)
 		if err != nil {
-			log.Fatal("Wrong formate date")
-		}
-		date := r.URL.Query().Get("date")
-		repeat := r.URL.Query().Get("repeat")
-		test_date, err := NextDate(now, date, repeat)
-		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(w, err)
 		} else {
-			fmt.Println(test_date)
+			date := r.URL.Query().Get("date")
+			repeat := r.URL.Query().Get("repeat")
+			test_date, err := NextDate(now, date, repeat)
+			if err != nil {
+				fmt.Fprintln(w, err)
+			} else {
+				fmt.Fprintln(w, test_date)
+			}
 		}
 
 	})
