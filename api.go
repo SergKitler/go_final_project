@@ -53,7 +53,7 @@ func ApiTask(w http.ResponseWriter, r *http.Request) {
 			SendErrorResponse(w, "ApiTask: JSON deserialization error", http.StatusBadRequest)
 			return
 		}
-
+		log.Println("date: ", task.Date)
 		if task.Date == "" {
 			task.Date = time.Now().Format("20060102")
 		}
@@ -81,6 +81,7 @@ func ApiTask(w http.ResponseWriter, r *http.Request) {
 			SendErrorResponse(w, "Task title must be specified", http.StatusBadRequest)
 			return
 		}
+
 		if task.Repeat == "" {
 			task.Date, err = NextDate(time.Now(), task.Date, task.Repeat)
 
@@ -88,10 +89,6 @@ func ApiTask(w http.ResponseWriter, r *http.Request) {
 				SendErrorResponse(w, "Invalid task repetition format", http.StatusBadRequest)
 				return
 			}
-			// else {
-			// 	SendErrorResponse(w, "Invalid repeat format", http.StatusBadRequest)
-			// 	return
-			// }
 		}
 
 		db := openDb()
