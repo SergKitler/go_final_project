@@ -70,6 +70,7 @@ func postJSON(apipath string, values map[string]any, method string) (map[string]
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("body: ", string(body))
 	err = json.Unmarshal(body, &m)
 	return m, err
 }
@@ -88,9 +89,9 @@ func TestAddTask(t *testing.T) {
 	tbl := []task{
 		{"20240129", "", "", ""},
 		{"20240192", "Qwerty", "", ""},
-		{"28.01.2024", "Заголовок", "", ""},
-		{"20240112", "Заголовок", "", "w"},
-		{"20240212", "Заголовок", "", "ooops"},
+		{"28.01.2024", "Заголовок1", "", ""},
+		{"20240112", "Заголовок2", "", "w"},
+		{"20240212", "Заголовок3", "", "ooops"},
 	}
 	for _, v := range tbl {
 		m, err := postJSON("api/task", map[string]any{
@@ -154,7 +155,7 @@ func TestAddTask(t *testing.T) {
 	}
 
 	tbl = []task{
-		{"", "Заголовок", "", ""},
+		{"", "Заголовок5", "", ""},
 		{"20231220", "Сделать что-нибудь", "Хорошо отдохнуть", ""},
 		{"20240108", "Уроки", "", "d 10"},
 		{"20240102", "Отдых в Сочи", "На лыжах", "y"},
