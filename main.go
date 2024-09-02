@@ -65,7 +65,8 @@ func main() {
 
 	http.Handle("/", http.FileServer(http.Dir("./web")))
 	http.HandleFunc("/api/nextdate", ApiNextDate)
-	http.HandleFunc("/api/task", ApiTask)
+	http.HandleFunc("/api/task", AddTaskPost)
+	http.HandleFunc("/api/tasks", GetTasks)
 
 	err := http.ListenAndServe(":7540", nil)
 	if err != nil {
