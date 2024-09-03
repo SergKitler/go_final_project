@@ -34,7 +34,7 @@ type sql_db struct {
 }
 
 type task_json struct {
-	Id      string `json:"id,omitempty`
+	Id      string `json:"id"`
 	Date    string `json:"date"`
 	Title   string `json:"title"`
 	Comment string `json:"comment,omitempty"`
@@ -65,7 +65,7 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			// get tasks by date
 			date_res := search_date.Format("20060102")
-			query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE date = $1 ORDER BY date LIMIT $2"
+			query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE date == $1 ORDER BY date LIMIT $2"
 			rows, err = db.Get(taskLimit, query, date_res)
 			if err != nil {
 				SendErrorResponse(w, "Error executing db query", http.StatusInternalServerError)
@@ -130,15 +130,15 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 func ApiTask(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		http.ServeFile(w, r, "form.html")
+		GetTaskByID(w, r)
 	case "POST":
-		AddTaskPost(w, r)
+		AddTask(w, r)
 	case "PUT":
 		EditTask(w, r)
 	}
 }
 
-func AddTaskPost(w http.ResponseWriter, r *http.Request) {
+func AddTask(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		SendErrorResponse(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -150,7 +150,6 @@ func AddTaskPost(w http.ResponseWriter, r *http.Request) {
 		SendErrorResponse(w, "ApiTask: JSON deserialization error", http.StatusBadRequest)
 		return
 	}
-	log.Println("First - date: ", task.Date, "task: ", task.Title, "repeat: ", task.Repeat)
 
 	if task.Title == "" {
 		SendErrorResponse(w, "Task title must be specified", http.StatusBadRequest)
@@ -182,7 +181,6 @@ func AddTaskPost(w http.ResponseWriter, r *http.Request) {
 			date_next, err := NextDate(time.Now(), date.Format("20060102"), task.Repeat)
 
 			if err != nil {
-				log.Println("Second - date: ", task.Date, "task: ", task.Title, "repeat: ", task.Repeat)
 				SendErrorResponse(w, "Invalid task repetition format 1", http.StatusBadRequest)
 				return
 			}
@@ -250,7 +248,7 @@ func EditTask(w http.ResponseWriter, r *http.Request) {
 
 	var idTask int
 	db := openDb()
-	query := "SELECT id FROM scheduler WHERE id = ?"
+	query := "SELECT id FROM scheduler WHERE id == ?"
 	err = db.SearchError(query, task.Id, idTask)
 	if err == sql.ErrNoRows {
 		SendErrorResponse(w, "Task not found", http.StatusNotFound)
@@ -274,6 +272,43 @@ func EditTask(w http.ResponseWriter, r *http.Request) {
 	// send response
 	w.WriteHeader(http.StatusOK)
 	w.Write(response)
+}
+
+func GetTaskByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		SendErrorResponse(w, "Method not allowed", http.StatusBadRequest)
+		return
+	}
+
+	idTask := r.FormValue("id")
+	if idTask == "" {
+		SendErrorResponse(w, "No ID provided", http.StatusBadRequest)
+		return
+	}
+
+	var task task_json
+
+	db := openDb()
+	query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE id == ?"
+	task, err := db.GetbyID(query, idTask)
+	if err == sql.ErrNoRows {
+		SendErrorResponse(w, "Task not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		SendErrorResponse(w, "Error executing db query", http.StatusInternalServerError)
+		return
+	}
+
+	response, err := json.Marshal(task)
+	if err != nil {
+		SendErrorResponse(w, "Response JSON creation eror", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(response)
+
 }
 
 type error_response struct {
@@ -333,9 +368,15 @@ func (at sql_db) Get(taskLimit int, args ...string) (*sql.Rows, error) {
 	return row, err
 }
 
-func (at sql_db) SearchError(query string, id string, idTask int) error {
-	error := at.db.QueryRow(query, id).Scan(&idTask)
-	return error
+func (at sql_db) SearchError(query string, id string, id_task int) error {
+	err := at.db.QueryRow(query, id).Scan(&id_task)
+	return err
+}
+
+func (at sql_db) GetbyID(query string, id string) (task_json, error) {
+	var task task_json
+	err := at.db.QueryRow(query, id).Scan(&task.Id, &task.Date, &task.Title, &task.Comment, &task.Repeat)
+	return task, err
 }
 
 func (at sql_db) Update(task task_json) (sql.Result, error) {
