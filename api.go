@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -44,10 +45,6 @@ type id_task_response struct {
 	Id int64 `json:"id"`
 }
 
-type tasks_response struct {
-	Tasks []task_json `json:"tasks"`
-}
-
 func GetTasks(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		SendErrorResponse(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -76,7 +73,6 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 			}
 			defer rows.Close()
 		} else {
-			// get tasks by title/comment
 			search_contain := "%" + search_str + "%"
 			query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE title LIKE $1 OR comment LIKE $1 ORDER BY date LIMIT $2"
 			rows, err = db.Get(taskLimit, query, search_contain)
@@ -129,6 +125,17 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(response)
+}
+
+func ApiTask(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		http.ServeFile(w, r, "form.html")
+	case "POST":
+		AddTaskPost(w, r)
+	case "PUT":
+		EditTask(w, r)
+	}
 }
 
 func AddTaskPost(w http.ResponseWriter, r *http.Request) {
@@ -195,6 +202,80 @@ func AddTaskPost(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(id_task_response{Id: id})
 }
 
+func EditTask(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		SendErrorResponse(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var task task_json
+	err := json.NewDecoder(r.Body).Decode(&task)
+	if err != nil {
+		SendErrorResponse(w, "JSON deserialization error", http.StatusBadRequest)
+		return
+	}
+
+	if task.Id == "" {
+		SendErrorResponse(w, "Task ID not found", http.StatusBadRequest)
+		return
+	}
+
+	id, err := strconv.Atoi(task.Id)
+	if err != nil || id <= 0 {
+		SendErrorResponse(w, "Invalid task ID", http.StatusBadRequest)
+		return
+	}
+
+	if task.Title == "" {
+		SendErrorResponse(w, "Task title must be specified", http.StatusBadRequest)
+		return
+	}
+
+	if task.Date == "" {
+		task.Date = time.Now().Format("20060102")
+	}
+
+	_, err = time.Parse("20060102", task.Date)
+	if err != nil {
+		SendErrorResponse(w, "Invalid date format", http.StatusBadRequest)
+		return
+	}
+
+	if task.Repeat != "" {
+		if _, err := strconv.Atoi(task.Repeat[2:]); err != nil || (task.Repeat[0] != 'd' && task.Repeat[0] != 'y') {
+			SendErrorResponse(w, "Invalid task repetition format", http.StatusBadRequest)
+			return
+		}
+	}
+
+	var idTask int
+	db := openDb()
+	query := "SELECT id FROM scheduler WHERE id = ?"
+	err = db.SearchError(query, task.Id, idTask)
+	if err == sql.ErrNoRows {
+		SendErrorResponse(w, "Task not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		SendErrorResponse(w, "Error checking task existence", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = db.Update(task)
+	if err != nil {
+		SendErrorResponse(w, "Task not found", http.StatusInternalServerError)
+		return
+	}
+
+	response, err := json.Marshal(struct{}{})
+	if err != nil {
+		SendErrorResponse(w, "Response JSON creation error", http.StatusInternalServerError)
+		return
+	}
+	// send response
+	w.WriteHeader(http.StatusOK)
+	w.Write(response)
+}
+
 type error_response struct {
 	Error string `json:"error"`
 }
@@ -229,7 +310,6 @@ func (at sql_db) Add(task task_json) (int64, error) {
 	}
 
 	return id, nil
-
 }
 
 func (at sql_db) Get(taskLimit int, args ...string) (*sql.Rows, error) {
@@ -247,8 +327,23 @@ func (at sql_db) Get(taskLimit int, args ...string) (*sql.Rows, error) {
 		query = args[0]
 		row, err = at.db.Query(query, taskLimit)
 	} else {
-		return nil, errors.New("Mismatch arguments")
+		return nil, errors.New("mismatch arguments")
 	}
 
 	return row, err
+}
+
+func (at sql_db) SearchError(query string, id string, idTask int) error {
+	error := at.db.QueryRow(query, id).Scan(&idTask)
+	return error
+}
+
+func (at sql_db) Update(task task_json) (sql.Result, error) {
+	query := "UPDATE scheduler SET date = ?, title = ?, comment = ?, repeat =? WHERE id = ?"
+	res, err := at.db.Exec(query, task.Date, task.Title, task.Comment, task.Repeat, task.Id)
+	if err != nil {
+		return nil, errors.New("task not found")
+	}
+
+	return res, nil
 }

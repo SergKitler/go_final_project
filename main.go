@@ -22,7 +22,6 @@ func findPathDb(dbName string) string {
 	}
 
 	dbFile := filepath.Join(appPath, dbName)
-	_, err = os.Stat(dbFile)
 
 	return dbFile
 }
@@ -33,9 +32,10 @@ func СreateDb(dbName string) {
 	db, err := sql.Open("sqlite", dbFile)
 	if err != nil {
 		log.Fatal(err)
-		return
 	}
 	defer db.Close()
+
+	_, err = os.Stat(dbFile)
 
 	var install bool
 	if err != nil {
@@ -65,7 +65,7 @@ func main() {
 
 	http.Handle("/", http.FileServer(http.Dir("./web")))
 	http.HandleFunc("/api/nextdate", ApiNextDate)
-	http.HandleFunc("/api/task", AddTaskPost)
+	http.HandleFunc("/api/task", ApiTask)
 	http.HandleFunc("/api/tasks", GetTasks)
 
 	err := http.ListenAndServe(":7540", nil)
