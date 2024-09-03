@@ -67,6 +67,7 @@ func main() {
 	http.HandleFunc("/api/nextdate", ApiNextDate)
 	http.HandleFunc("/api/task", ApiTask)
 	http.HandleFunc("/api/tasks", GetTasks)
+	http.HandleFunc("/api/task/done", ApiTaskDone)
 
 	err := http.ListenAndServe(":7540", nil)
 	if err != nil {

@@ -135,6 +135,8 @@ func ApiTask(w http.ResponseWriter, r *http.Request) {
 		AddTask(w, r)
 	case "PUT":
 		EditTask(w, r)
+	case "DELETE":
+		DelTask(w, r)
 	}
 }
 
@@ -246,10 +248,10 @@ func EditTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var idTask int
+	var id_task int
 	db := openDb()
 	query := "SELECT id FROM scheduler WHERE id == ?"
-	err = db.SearchError(query, task.Id, idTask)
+	err = db.SearchError(query, task.Id, id_task)
 	if err == sql.ErrNoRows {
 		SendErrorResponse(w, "Task not found", http.StatusNotFound)
 		return
@@ -280,8 +282,8 @@ func GetTaskByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idTask := r.FormValue("id")
-	if idTask == "" {
+	id_task := r.FormValue("id")
+	if id_task == "" {
 		SendErrorResponse(w, "No ID provided", http.StatusBadRequest)
 		return
 	}
@@ -290,7 +292,7 @@ func GetTaskByID(w http.ResponseWriter, r *http.Request) {
 
 	db := openDb()
 	query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE id == ?"
-	task, err := db.GetbyID(query, idTask)
+	task, err := db.GetbyID(query, id_task)
 	if err == sql.ErrNoRows {
 		SendErrorResponse(w, "Task not found", http.StatusNotFound)
 		return
@@ -308,7 +310,110 @@ func GetTaskByID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(response)
+}
 
+func DelTask(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		SendErrorResponse(w, "Method not allowed", http.StatusBadRequest)
+		return
+	}
+
+	id_task := r.FormValue("id")
+	if id_task == "" {
+		SendErrorResponse(w, "No ID provided", http.StatusBadRequest)
+		return
+	}
+
+	id_task_res, err := strconv.Atoi(id_task)
+	if err != nil {
+		SendErrorResponse(w, "Invalid ID format", http.StatusInternalServerError)
+		return
+	}
+
+	db := openDb()
+	res, err := db.Delete(id_task_res)
+
+	if err != nil {
+		SendErrorResponse(w, "Error deleting task", http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		SendErrorResponse(w, "Unable to determine the number of affected rows", http.StatusInternalServerError)
+		return
+	} else if rowsAffected == 0 {
+		SendErrorResponse(w, "Task not found", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{}`))
+}
+
+func ApiTaskDone(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		SendErrorResponse(w, "Method not allowed", http.StatusBadRequest)
+		return
+	}
+
+	id_task := r.FormValue("id")
+	if id_task == "" {
+		SendErrorResponse(w, "No ID provided", http.StatusBadRequest)
+		return
+	}
+
+	var (
+		task task_json
+		id   int
+	)
+	db := openDb()
+	id, task, err := db.GetbyIdWithId(id_task)
+	task.Id = fmt.Sprint(id)
+	if err == sql.ErrNoRows {
+		SendErrorResponse(w, "Task not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		SendErrorResponse(w, "Error retrieving task data", http.StatusInternalServerError)
+		return
+	}
+
+	if task.Repeat != "" {
+		new_task_date, err := NextDate(time.Now(), task.Date, task.Repeat)
+		if err != nil {
+			SendErrorResponse(w, "Invalid repeat pattern", http.StatusBadRequest)
+			return
+		}
+
+		task.Date = new_task_date
+
+		_, err = db.Update(task)
+		if err != nil {
+			SendErrorResponse(w, "Task not found", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// delete task if repeat rule not set
+		res, err := db.Delete(id)
+		if err != nil {
+			SendErrorResponse(w, "Error deleting task", http.StatusInternalServerError)
+			return
+		}
+
+		rowsAffected, err := res.RowsAffected()
+		if err != nil {
+			SendErrorResponse(w, "Unable to determine the number of rows affected after deleting a task", http.StatusInternalServerError)
+			return
+		} else if rowsAffected == 0 {
+			SendErrorResponse(w, "Task not found", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{}`))
 }
 
 type error_response struct {
@@ -379,12 +484,30 @@ func (at sql_db) GetbyID(query string, id string) (task_json, error) {
 	return task, err
 }
 
+func (at sql_db) GetbyIdWithId(id string) (int, task_json, error) {
+	var (
+		task   task_json
+		id_res int
+	)
+	query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE id == ?"
+	err := at.db.QueryRow(query, id).Scan(&id_res, &task.Date, &task.Title, &task.Comment, &task.Repeat)
+
+	return id_res, task, err
+}
+
 func (at sql_db) Update(task task_json) (sql.Result, error) {
-	query := "UPDATE scheduler SET date = ?, title = ?, comment = ?, repeat =? WHERE id = ?"
+	query := "UPDATE scheduler SET date = ?, title = ?, comment = ?, repeat =? WHERE id == ?"
 	res, err := at.db.Exec(query, task.Date, task.Title, task.Comment, task.Repeat, task.Id)
 	if err != nil {
 		return nil, errors.New("task not found")
 	}
 
 	return res, nil
+}
+
+func (at sql_db) Delete(id int) (sql.Result, error) {
+	query := "DELETE FROM scheduler WHERE id == ?"
+	result, err := at.db.Exec(query, id)
+
+	return result, err
 }
