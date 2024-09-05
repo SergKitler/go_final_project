@@ -1,77 +1,37 @@
 package main
 
 import (
-	"context"
-	"database/sql"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	_ "modernc.org/sqlite"
 )
 
-var (
-	databaseName string = "scheduler.db"
-)
+var databaseName string = "scheduler.db"
 
-func findPathDb(dbName string) string {
-	appPath, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	dbFile := filepath.Join(appPath, dbName)
-
-	return dbFile
-}
-
-func СreateDb(dbName string) {
-	dbFile := findPathDb(dbName)
-
-	db, err := sql.Open("sqlite", dbFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
-
-	_, err = os.Stat(dbFile)
-
-	var install bool
-	if err != nil {
-		install = true
-	}
-
-	if install {
-		_, err = db.ExecContext(
-			context.Background(),
-			`CREATE TABLE IF NOT EXISTS scheduler (
-					id INTEGER PRIMARY KEY AUTOINCREMENT, 
-					date VARCHAR(8) NOT NULL, 
-					title TEXT NOT NULL, 
-					comment TEXT NOT NULL DEFAULT "", 
-					repeat VARCHAR(128) NOT NULL DEFAULT ""
-					);
-			 CREATE INDEX id ON scheduler (id)`,
-		)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
+type ApiHandler struct {
+	db sql_db
 }
 
 func main() {
-	СreateDb(databaseName)
+	var handler ApiHandler
+	handler.db.СreateDb(databaseName)
+	handler.db.openDb()
 
-	http.Handle("/", http.FileServer(http.Dir("./web")))
-	http.HandleFunc("/api/nextdate", ApiNextDate)
-	http.HandleFunc("/api/task", ApiTask)
-	http.HandleFunc("/api/tasks", GetTasks)
-	http.HandleFunc("/api/task/done", ApiTaskDone)
+	m := http.NewServeMux()
+	m.Handle("/", http.FileServer(http.Dir("./web")))
+	m.HandleFunc("/api/nextdate", ApiNextDate)
+	m.HandleFunc("/api/task", handler.Task)
+	m.HandleFunc("/api/tasks", handler.GetTasks)
+	m.HandleFunc("/api/task/done", handler.TaskDone)
 
-	err := http.ListenAndServe(":7540", nil)
+	var srv = &http.Server{
+		Addr:    ":7540",
+		Handler: m,
+	}
+	log.Println("test")
+	err := srv.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
 	}
-
 }

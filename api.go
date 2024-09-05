@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,28 +11,28 @@ import (
 	"time"
 )
 
+const taskLimit = 50
+
+var dateFormat string = "20060102"
+
 func ApiNextDate(w http.ResponseWriter, r *http.Request) {
-	now_str := r.URL.Query().Get("now")
-	now, err := time.Parse("20060102", now_str)
+	nowStr := r.URL.Query().Get("now")
+	now, err := time.Parse(dateFormat, nowStr)
 	if err != nil {
-		fmt.Fprintln(w, err)
+		log.Println(w, err)
 	} else {
 		date := r.URL.Query().Get("date")
 		repeat := r.URL.Query().Get("repeat")
-		test_date, err := NextDate(now, date, repeat)
+		testDate, err := NextDate(now, date, repeat)
 		if err != nil {
 			fmt.Fprintln(w, err)
 		} else {
-			fmt.Fprintln(w, test_date)
+			fmt.Fprintln(w, testDate)
 		}
 	}
 }
 
-type sql_db struct {
-	db *sql.DB
-}
-
-type task_json struct {
+type taskStruct struct {
 	Id      string `json:"id"`
 	Date    string `json:"date"`
 	Title   string `json:"title"`
@@ -41,41 +40,37 @@ type task_json struct {
 	Repeat  string `json:"repeat"`
 }
 
-type id_task_response struct {
-	Id int64 `json:"id"`
-}
-
-func GetTasks(w http.ResponseWriter, r *http.Request) {
+func (h *ApiHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		SendErrorResponse(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	const taskLimit = 50
+
 	var (
-		taskList []task_json
-		task     task_json
+		taskList []taskStruct
+		task     taskStruct
 		rows     *sql.Rows
 		err      error
 	)
-	db := openDb()
-	search_str := r.FormValue("search")
-	if search_str != "" {
-		var search_date time.Time
-		search_date, err = time.Parse("02.01.2006", search_str)
+
+	searchStr := r.FormValue("search")
+	if searchStr != "" {
+		var searchDate time.Time
+		searchDate, err = time.Parse("02.01.2006", searchStr)
 		if err == nil {
 			// get tasks by date
-			date_res := search_date.Format("20060102")
+			dateRes := searchDate.Format(dateFormat)
 			query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE date == $1 ORDER BY date LIMIT $2"
-			rows, err = db.Get(taskLimit, query, date_res)
+			rows, err = h.db.Get(taskLimit, query, dateRes)
 			if err != nil {
 				SendErrorResponse(w, "Error executing db query", http.StatusInternalServerError)
 				return
 			}
 			defer rows.Close()
 		} else {
-			search_contain := "%" + search_str + "%"
+			searchContain := "%" + searchStr + "%"
 			query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE title LIKE $1 OR comment LIKE $1 ORDER BY date LIMIT $2"
-			rows, err = db.Get(taskLimit, query, search_contain)
+			rows, err = h.db.Get(taskLimit, query, searchContain)
 			if err != nil {
 				SendErrorResponse(w, "Error executing db query", http.StatusInternalServerError)
 				return
@@ -84,7 +79,7 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		query := "SELECT id, date, title, comment, repeat FROM scheduler ORDER BY date LIMIT $1"
-		rows, err = db.Get(taskLimit, query)
+		rows, err = h.db.Get(taskLimit, query)
 		if err != nil {
 			SendErrorResponse(w, "Error executing db query", http.StatusInternalServerError)
 			return
@@ -108,14 +103,14 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(taskList) == 0 {
-		taskList = []task_json{}
+		taskList = []taskStruct{}
 	}
 
 	// sort tasks
 	sort.Slice(taskList, func(i, j int) bool {
 		return taskList[i].Date < taskList[j].Date
 	})
-	responseMap := map[string][]task_json{"tasks": taskList}
+	responseMap := map[string][]taskStruct{"tasks": taskList}
 	response, err := json.Marshal(responseMap)
 	if err != nil {
 		SendErrorResponse(w, "Response JSON creation error", http.StatusInternalServerError)
@@ -127,29 +122,29 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 	w.Write(response)
 }
 
-func ApiTask(w http.ResponseWriter, r *http.Request) {
+func (h *ApiHandler) Task(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		GetTaskByID(w, r)
+		h.GetTaskByID(w, r)
 	case "POST":
-		AddTask(w, r)
+		h.AddTask(w, r)
 	case "PUT":
-		EditTask(w, r)
+		h.EditTask(w, r)
 	case "DELETE":
-		DelTask(w, r)
+		h.DelTask(w, r)
 	}
 }
 
-func AddTask(w http.ResponseWriter, r *http.Request) {
+func (h *ApiHandler) AddTask(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		SendErrorResponse(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var task task_json
+	var task taskStruct
 	err := json.NewDecoder(r.Body).Decode(&task)
 	if err != nil {
-		SendErrorResponse(w, "ApiTask: JSON deserialization error", http.StatusBadRequest)
+		SendErrorResponse(w, "JSON deserialization error", http.StatusBadRequest)
 		return
 	}
 
@@ -159,18 +154,18 @@ func AddTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if task.Date == "" {
-		task.Date = time.Now().Format("20060102")
+		task.Date = time.Now().Format(dateFormat)
 	}
 
-	date, err := time.Parse("20060102", task.Date)
+	date, err := time.Parse(dateFormat, task.Date)
 	if err != nil {
 		SendErrorResponse(w, "Invalid date format", http.StatusBadRequest)
 		return
 	}
 
 	if task.Repeat != "" {
-		date_check, err := NextDate(time.Now(), task.Date, task.Repeat)
-		if date_check == "" && err != nil {
+		dateCheck, err := NextDate(time.Now(), task.Date, task.Repeat)
+		if dateCheck == "" && err != nil {
 			SendErrorResponse(w, "Invalid task repetition format", http.StatusBadRequest)
 			return
 		}
@@ -178,37 +173,35 @@ func AddTask(w http.ResponseWriter, r *http.Request) {
 
 	if date.Before(time.Now()) {
 		if task.Repeat == "" || date.Truncate(24*time.Hour) == date.Truncate(24*time.Hour) {
-			task.Date = time.Now().Format("20060102")
+			task.Date = time.Now().Format(dateFormat)
 		} else {
-			date_next, err := NextDate(time.Now(), date.Format("20060102"), task.Repeat)
+			dateNext, err := NextDate(time.Now(), date.Format(dateFormat), task.Repeat)
 
 			if err != nil {
 				SendErrorResponse(w, "Invalid task repetition format 1", http.StatusBadRequest)
 				return
 			}
-			task.Date = date_next
+			task.Date = dateNext
 		}
 	}
 
-	db := openDb()
-	id, err := db.Add(task)
+	id, err := h.db.Add(task)
 	if err != nil {
 		SendErrorResponse(w, "Failed to write to database", http.StatusBadRequest)
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(id_task_response{Id: id})
+	json.NewEncoder(w).Encode(taskStruct{Id: id})
 }
 
-func EditTask(w http.ResponseWriter, r *http.Request) {
+func (h *ApiHandler) EditTask(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		SendErrorResponse(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var task task_json
+	var task taskStruct
 	err := json.NewDecoder(r.Body).Decode(&task)
 	if err != nil {
 		SendErrorResponse(w, "JSON deserialization error", http.StatusBadRequest)
@@ -232,10 +225,10 @@ func EditTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if task.Date == "" {
-		task.Date = time.Now().Format("20060102")
+		task.Date = time.Now().Format(dateFormat)
 	}
 
-	_, err = time.Parse("20060102", task.Date)
+	_, err = time.Parse(dateFormat, task.Date)
 	if err != nil {
 		SendErrorResponse(w, "Invalid date format", http.StatusBadRequest)
 		return
@@ -248,10 +241,9 @@ func EditTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var id_task int
-	db := openDb()
+	var idTask int
 	query := "SELECT id FROM scheduler WHERE id == ?"
-	err = db.SearchError(query, task.Id, id_task)
+	err = h.db.SearchError(query, task.Id, idTask)
 	if err == sql.ErrNoRows {
 		SendErrorResponse(w, "Task not found", http.StatusNotFound)
 		return
@@ -260,7 +252,7 @@ func EditTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = db.Update(task)
+	_, err = h.db.Update(task)
 	if err != nil {
 		SendErrorResponse(w, "Task not found", http.StatusInternalServerError)
 		return
@@ -276,23 +268,21 @@ func EditTask(w http.ResponseWriter, r *http.Request) {
 	w.Write(response)
 }
 
-func GetTaskByID(w http.ResponseWriter, r *http.Request) {
+func (h *ApiHandler) GetTaskByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		SendErrorResponse(w, "Method not allowed", http.StatusBadRequest)
 		return
 	}
 
-	id_task := r.FormValue("id")
-	if id_task == "" {
+	idTask := r.FormValue("id")
+	if idTask == "" {
 		SendErrorResponse(w, "No ID provided", http.StatusBadRequest)
 		return
 	}
 
-	var task task_json
-
-	db := openDb()
+	var task taskStruct
 	query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE id == ?"
-	task, err := db.GetbyID(query, id_task)
+	task, err := h.db.GetbyID(query, idTask)
 	if err == sql.ErrNoRows {
 		SendErrorResponse(w, "Task not found", http.StatusNotFound)
 		return
@@ -312,26 +302,25 @@ func GetTaskByID(w http.ResponseWriter, r *http.Request) {
 	w.Write(response)
 }
 
-func DelTask(w http.ResponseWriter, r *http.Request) {
+func (h *ApiHandler) DelTask(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		SendErrorResponse(w, "Method not allowed", http.StatusBadRequest)
 		return
 	}
 
-	id_task := r.FormValue("id")
-	if id_task == "" {
+	idTask := r.FormValue("id")
+	if idTask == "" {
 		SendErrorResponse(w, "No ID provided", http.StatusBadRequest)
 		return
 	}
 
-	id_task_res, err := strconv.Atoi(id_task)
+	resultId, err := strconv.Atoi(idTask)
 	if err != nil {
 		SendErrorResponse(w, "Invalid ID format", http.StatusInternalServerError)
 		return
 	}
 
-	db := openDb()
-	res, err := db.Delete(id_task_res)
+	res, err := h.db.Delete(resultId)
 
 	if err != nil {
 		SendErrorResponse(w, "Error deleting task", http.StatusInternalServerError)
@@ -352,24 +341,24 @@ func DelTask(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{}`))
 }
 
-func ApiTaskDone(w http.ResponseWriter, r *http.Request) {
+func (h *ApiHandler) TaskDone(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		SendErrorResponse(w, "Method not allowed", http.StatusBadRequest)
 		return
 	}
 
-	id_task := r.FormValue("id")
-	if id_task == "" {
+	idTask := r.FormValue("id")
+	if idTask == "" {
 		SendErrorResponse(w, "No ID provided", http.StatusBadRequest)
 		return
 	}
 
 	var (
-		task task_json
+		task taskStruct
 		id   int
 	)
-	db := openDb()
-	id, task, err := db.GetbyIdWithId(id_task)
+
+	id, task, err := h.db.GetbyIdWithId(idTask)
 	task.Id = fmt.Sprint(id)
 	if err == sql.ErrNoRows {
 		SendErrorResponse(w, "Task not found", http.StatusNotFound)
@@ -380,22 +369,22 @@ func ApiTaskDone(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if task.Repeat != "" {
-		new_task_date, err := NextDate(time.Now(), task.Date, task.Repeat)
+		newTaskDate, err := NextDate(time.Now(), task.Date, task.Repeat)
 		if err != nil {
 			SendErrorResponse(w, "Invalid repeat pattern", http.StatusBadRequest)
 			return
 		}
 
-		task.Date = new_task_date
+		task.Date = newTaskDate
 
-		_, err = db.Update(task)
+		_, err = h.db.Update(task)
 		if err != nil {
 			SendErrorResponse(w, "Task not found", http.StatusInternalServerError)
 			return
 		}
 	} else {
 		// delete task if repeat rule not set
-		res, err := db.Delete(id)
+		res, err := h.db.Delete(id)
 		if err != nil {
 			SendErrorResponse(w, "Error deleting task", http.StatusInternalServerError)
 			return
@@ -416,98 +405,12 @@ func ApiTaskDone(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{}`))
 }
 
-type error_response struct {
+type errorResponse struct {
 	Error string `json:"error"`
 }
 
 func SendErrorResponse(w http.ResponseWriter, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(error_response{Error: message})
-}
-
-func openDb() sql_db {
-	dbFile := findPathDb(databaseName)
-
-	db, err := sql.Open("sqlite", dbFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return sql_db{db: db}
-}
-
-func (at sql_db) Add(task task_json) (int64, error) {
-	res, err := at.db.Exec("INSERT INTO scheduler (date, title, comment, repeat) values (?, ?, ?, ?)",
-		task.Date, task.Title, task.Comment, task.Repeat)
-	if err != nil {
-		return 0, err
-	}
-
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, err
-	}
-
-	return id, nil
-}
-
-func (at sql_db) Get(taskLimit int, args ...string) (*sql.Rows, error) {
-	var (
-		query  string
-		search string
-		row    *sql.Rows
-		err    error
-	)
-	if len(args) == 2 {
-		query = args[0]
-		search = args[1]
-		row, err = at.db.Query(query, search, taskLimit)
-	} else if len(args) == 1 {
-		query = args[0]
-		row, err = at.db.Query(query, taskLimit)
-	} else {
-		return nil, errors.New("mismatch arguments")
-	}
-
-	return row, err
-}
-
-func (at sql_db) SearchError(query string, id string, id_task int) error {
-	err := at.db.QueryRow(query, id).Scan(&id_task)
-	return err
-}
-
-func (at sql_db) GetbyID(query string, id string) (task_json, error) {
-	var task task_json
-	err := at.db.QueryRow(query, id).Scan(&task.Id, &task.Date, &task.Title, &task.Comment, &task.Repeat)
-	return task, err
-}
-
-func (at sql_db) GetbyIdWithId(id string) (int, task_json, error) {
-	var (
-		task   task_json
-		id_res int
-	)
-	query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE id == ?"
-	err := at.db.QueryRow(query, id).Scan(&id_res, &task.Date, &task.Title, &task.Comment, &task.Repeat)
-
-	return id_res, task, err
-}
-
-func (at sql_db) Update(task task_json) (sql.Result, error) {
-	query := "UPDATE scheduler SET date = ?, title = ?, comment = ?, repeat =? WHERE id == ?"
-	res, err := at.db.Exec(query, task.Date, task.Title, task.Comment, task.Repeat, task.Id)
-	if err != nil {
-		return nil, errors.New("task not found")
-	}
-
-	return res, nil
-}
-
-func (at sql_db) Delete(id int) (sql.Result, error) {
-	query := "DELETE FROM scheduler WHERE id == ?"
-	result, err := at.db.Exec(query, id)
-
-	return result, err
+	json.NewEncoder(w).Encode(errorResponse{Error: message})
 }
