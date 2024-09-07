@@ -40,7 +40,7 @@ type taskStruct struct {
 	Repeat  string `json:"repeat"`
 }
 
-func (h *ApiHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
+func GetTasks(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		SendErrorResponse(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -61,7 +61,7 @@ func (h *ApiHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 			// get tasks by date
 			dateRes := searchDate.Format(dateFormat)
 			query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE date == $1 ORDER BY date LIMIT $2"
-			rows, err = h.db.Get(taskLimit, query, dateRes)
+			rows, err = Get(taskLimit, query, dateRes)
 			if err != nil {
 				SendErrorResponse(w, "Error executing db query", http.StatusInternalServerError)
 				return
@@ -70,7 +70,7 @@ func (h *ApiHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 		} else {
 			searchContain := "%" + searchStr + "%"
 			query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE title LIKE $1 OR comment LIKE $1 ORDER BY date LIMIT $2"
-			rows, err = h.db.Get(taskLimit, query, searchContain)
+			rows, err = Get(taskLimit, query, searchContain)
 			if err != nil {
 				SendErrorResponse(w, "Error executing db query", http.StatusInternalServerError)
 				return
@@ -79,7 +79,7 @@ func (h *ApiHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		query := "SELECT id, date, title, comment, repeat FROM scheduler ORDER BY date LIMIT $1"
-		rows, err = h.db.Get(taskLimit, query)
+		rows, err = Get(taskLimit, query)
 		if err != nil {
 			SendErrorResponse(w, "Error executing db query", http.StatusInternalServerError)
 			return
@@ -119,23 +119,23 @@ func (h *ApiHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(response)
+	_, _ = w.Write(response)
 }
 
-func (h *ApiHandler) Task(w http.ResponseWriter, r *http.Request) {
+func Task(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		h.GetTaskByID(w, r)
+		GetTaskByID(w, r)
 	case "POST":
-		h.AddTask(w, r)
+		AddTask(w, r)
 	case "PUT":
-		h.EditTask(w, r)
+		EditTask(w, r)
 	case "DELETE":
-		h.DelTask(w, r)
+		DelTask(w, r)
 	}
 }
 
-func (h *ApiHandler) AddTask(w http.ResponseWriter, r *http.Request) {
+func AddTask(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		SendErrorResponse(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -185,7 +185,7 @@ func (h *ApiHandler) AddTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	id, err := h.db.Add(task)
+	id, err := Add(task)
 	if err != nil {
 		SendErrorResponse(w, "Failed to write to database", http.StatusBadRequest)
 		return
@@ -195,7 +195,7 @@ func (h *ApiHandler) AddTask(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(taskStruct{Id: id})
 }
 
-func (h *ApiHandler) EditTask(w http.ResponseWriter, r *http.Request) {
+func EditTask(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		SendErrorResponse(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -243,7 +243,7 @@ func (h *ApiHandler) EditTask(w http.ResponseWriter, r *http.Request) {
 
 	var idTask int
 	query := "SELECT id FROM scheduler WHERE id == ?"
-	err = h.db.SearchError(query, task.Id, idTask)
+	err = SearchError(query, task.Id, idTask)
 	if err == sql.ErrNoRows {
 		SendErrorResponse(w, "Task not found", http.StatusNotFound)
 		return
@@ -252,7 +252,7 @@ func (h *ApiHandler) EditTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.db.Update(task)
+	_, err = Update(task)
 	if err != nil {
 		SendErrorResponse(w, "Task not found", http.StatusInternalServerError)
 		return
@@ -265,10 +265,10 @@ func (h *ApiHandler) EditTask(w http.ResponseWriter, r *http.Request) {
 	}
 	// send response
 	w.WriteHeader(http.StatusOK)
-	w.Write(response)
+	_, _ = w.Write(response)
 }
 
-func (h *ApiHandler) GetTaskByID(w http.ResponseWriter, r *http.Request) {
+func GetTaskByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		SendErrorResponse(w, "Method not allowed", http.StatusBadRequest)
 		return
@@ -281,8 +281,8 @@ func (h *ApiHandler) GetTaskByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var task taskStruct
-	query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE id == ?"
-	task, err := h.db.GetbyID(query, idTask)
+
+	task, err := GetbyID(idTask)
 	if err == sql.ErrNoRows {
 		SendErrorResponse(w, "Task not found", http.StatusNotFound)
 		return
@@ -299,10 +299,10 @@ func (h *ApiHandler) GetTaskByID(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(response)
+	_, _ = w.Write(response)
 }
 
-func (h *ApiHandler) DelTask(w http.ResponseWriter, r *http.Request) {
+func DelTask(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		SendErrorResponse(w, "Method not allowed", http.StatusBadRequest)
 		return
@@ -320,7 +320,7 @@ func (h *ApiHandler) DelTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.db.Delete(resultId)
+	res, err := Delete(resultId)
 
 	if err != nil {
 		SendErrorResponse(w, "Error deleting task", http.StatusInternalServerError)
@@ -338,10 +338,10 @@ func (h *ApiHandler) DelTask(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{}`))
+	_, _ = w.Write([]byte(`{}`))
 }
 
-func (h *ApiHandler) TaskDone(w http.ResponseWriter, r *http.Request) {
+func TaskDone(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		SendErrorResponse(w, "Method not allowed", http.StatusBadRequest)
 		return
@@ -358,7 +358,7 @@ func (h *ApiHandler) TaskDone(w http.ResponseWriter, r *http.Request) {
 		id   int
 	)
 
-	id, task, err := h.db.GetbyIdWithId(idTask)
+	id, task, err := GetbyIdWithId(idTask)
 	task.Id = fmt.Sprint(id)
 	if err == sql.ErrNoRows {
 		SendErrorResponse(w, "Task not found", http.StatusNotFound)
@@ -377,14 +377,14 @@ func (h *ApiHandler) TaskDone(w http.ResponseWriter, r *http.Request) {
 
 		task.Date = newTaskDate
 
-		_, err = h.db.Update(task)
+		_, err = Update(task)
 		if err != nil {
 			SendErrorResponse(w, "Task not found", http.StatusInternalServerError)
 			return
 		}
 	} else {
 		// delete task if repeat rule not set
-		res, err := h.db.Delete(id)
+		res, err := Delete(id)
 		if err != nil {
 			SendErrorResponse(w, "Error deleting task", http.StatusInternalServerError)
 			return
@@ -402,7 +402,7 @@ func (h *ApiHandler) TaskDone(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{}`))
+	_, _ = w.Write([]byte(`{}`))
 }
 
 type errorResponse struct {
