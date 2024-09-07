@@ -228,10 +228,24 @@ func EditTask(w http.ResponseWriter, r *http.Request) {
 		task.Date = time.Now().Format(dateFormat)
 	}
 
-	_, err = time.Parse(dateFormat, task.Date)
+	date, err := time.Parse(dateFormat, task.Date)
 	if err != nil {
 		SendErrorResponse(w, "Invalid date format", http.StatusBadRequest)
 		return
+	}
+
+	if date.Before(time.Now()) {
+		if task.Repeat == "" || date.Truncate(24*time.Hour) == date.Truncate(24*time.Hour) {
+			task.Date = time.Now().Format(dateFormat)
+		} else {
+			dateNext, err := NextDate(time.Now(), date.Format(dateFormat), task.Repeat)
+
+			if err != nil {
+				SendErrorResponse(w, "Invalid task repetition format 1", http.StatusBadRequest)
+				return
+			}
+			task.Date = dateNext
+		}
 	}
 
 	if task.Repeat != "" {
@@ -242,8 +256,8 @@ func EditTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var idTask int
-	query := "SELECT id FROM scheduler WHERE id == ?"
-	err = SearchError(query, task.Id, idTask)
+
+	err = SearchError(task.Id, idTask)
 	if err == sql.ErrNoRows {
 		SendErrorResponse(w, "Task not found", http.StatusNotFound)
 		return

@@ -13,7 +13,7 @@ var (
 
 func main() {
 	СreateDb(databaseName)
-	openDb()
+	OpenDb()
 
 	m := http.NewServeMux()
 	m.Handle("/", http.FileServer(http.Dir("./web")))

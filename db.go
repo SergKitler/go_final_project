@@ -62,7 +62,7 @@ func СreateDb(dbName string) *sql.DB {
 	return db
 }
 
-func openDb() {
+func OpenDb() {
 	dbFile := findPathDb(databaseName)
 	var err error
 	db, err = sql.Open("sqlite", dbFile)
@@ -107,7 +107,8 @@ func Get(taskLimit int, args ...string) (*sql.Rows, error) {
 	return row, err
 }
 
-func SearchError(query string, id string, id_task int) error {
+func SearchError(id string, id_task int) error {
+	query := "SELECT id FROM scheduler WHERE id == ?"
 	err := db.QueryRow(query, id).Scan(&id_task)
 	return err
 }
