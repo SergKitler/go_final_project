@@ -48,8 +48,6 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 
 	var (
 		taskList []taskStruct
-		task     taskStruct
-		rows     *sql.Rows
 		err      error
 	)
 
@@ -61,45 +59,27 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 			// get tasks by date
 			dateRes := searchDate.Format(dateFormat)
 			query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE date == $1 ORDER BY date LIMIT $2"
-			rows, err = Get(taskLimit, query, dateRes)
+			taskList, err = Get(taskLimit, query, dateRes)
 			if err != nil {
 				SendErrorResponse(w, "Error executing db query", http.StatusInternalServerError)
 				return
 			}
-			defer rows.Close()
 		} else {
 			searchContain := "%" + searchStr + "%"
 			query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE title LIKE $1 OR comment LIKE $1 ORDER BY date LIMIT $2"
-			rows, err = Get(taskLimit, query, searchContain)
+			taskList, err = Get(taskLimit, query, searchContain)
 			if err != nil {
 				SendErrorResponse(w, "Error executing db query", http.StatusInternalServerError)
 				return
 			}
-			defer rows.Close()
 		}
 	} else {
 		query := "SELECT id, date, title, comment, repeat FROM scheduler ORDER BY date LIMIT $1"
-		rows, err = Get(taskLimit, query)
+		taskList, err = Get(taskLimit, query)
 		if err != nil {
 			SendErrorResponse(w, "Error executing db query", http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
-	}
-
-	if err := rows.Err(); err != nil {
-		SendErrorResponse(w, "Failed to iterate over rows", http.StatusInternalServerError)
-		return
-	}
-
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id, &task.Date, &task.Title, &task.Comment, &task.Repeat); err != nil {
-			SendErrorResponse(w, "Error scanning data from the database", http.StatusInternalServerError)
-			return
-		}
-		task.Id = fmt.Sprint(id)
-		taskList = append(taskList, task)
 	}
 
 	if len(taskList) == 0 {

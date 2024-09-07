@@ -86,25 +86,39 @@ func Add(task taskStruct) (string, error) {
 	return strconv.FormatInt(id, 10), nil
 }
 
-func Get(taskLimit int, args ...string) (*sql.Rows, error) {
+func Get(taskLimit int, args ...string) ([]taskStruct, error) {
 	var (
 		query  string
 		search string
-		row    *sql.Rows
+		res    []taskStruct
+		rows   *sql.Rows
 		err    error
 	)
 	switch len(args) {
 	case 1:
 		query = args[0]
-		row, err = db.Query(query, taskLimit)
+		rows, err = db.Query(query, taskLimit)
 	case 2:
 		query = args[0]
 		search = args[1]
-		row, err = db.Query(query, search, taskLimit)
+		rows, err = db.Query(query, search, taskLimit)
 	default:
 		return nil, errors.New("mismatch arguments")
 	}
-	return row, err
+
+	defer rows.Close()
+
+	for rows.Next() {
+		task := taskStruct{}
+
+		err := rows.Scan(&task.Id, &task.Date, &task.Title, &task.Comment, &task.Repeat)
+		if err != nil {
+			return nil, err
+		}
+
+		res = append(res, task)
+	}
+	return res, err
 }
 
 func SearchError(id string, id_task int) error {
